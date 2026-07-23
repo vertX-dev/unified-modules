@@ -1,4 +1,4 @@
-name        = "diffcore"
+name        = "difficultyCore"
 version     = "0.1.0"
 description = "Public bridge client for Difficulty Core — read and react to difficulty, and register modules over script events."
 include     = ["difficultyCoreAPI.js"]
