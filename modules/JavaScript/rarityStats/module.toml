@@ -1,0 +1,7 @@
+name        = "rarityStats"
+version     = "0.1.0"
+description = "Public bridge client for Rarity & Stats — register passives, gates and rerolls over script events (optional dependency)."
+include     = ["rarityStatsAPI.js"]
+
+[dependencies]
+"@minecraft/server" = "2.8.0"
