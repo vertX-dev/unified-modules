@@ -1,0 +1,10 @@
+{
+    "type": "text",
+    "file": "block.txt",
+    "caseFold": "upper",
+    "fallback": "?",
+    "baseline": 0,
+    "author": "vertX",
+    "license": "MIT",
+    "source": "Commands++ core/buildTextFont.js"
+}

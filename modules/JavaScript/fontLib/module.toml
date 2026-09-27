@@ -1,0 +1,9 @@
+name        = "fontLib"
+version     = "0.2.0"
+description = "Pixel fonts for block text — lay out strings (any Unicode the font has) into 2D pixels or 3D block positions with separate scale and depth."
+include     = ["fontLib.js", "fonts/block.js", "fonts/slim.js"]
+
+[parts]                                # Spleen by Frederic Cambus, BSD-2-Clause (notice inside each file)
+spleen5x8  = ["fonts/spleen5x8.js"]    # 8 rows, full ASCII
+spleen6x12 = ["fonts/spleen6x12.js"]   # 12 rows, ASCII + Latin-1 + Cyrillic
+spleen8x16 = ["fonts/spleen8x16.js"]   # 16 rows, ASCII + Latin-1 + Latin Extended-A + Cyrillic + some Greek

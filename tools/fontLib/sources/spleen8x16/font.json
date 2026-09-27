@@ -1,0 +1,11 @@
+{
+    "type": "bdf",
+    "file": "spleen-8x16.bdf",
+    "include": ["U+0020-U+007E", "U+00A0-U+017F", "U+0370-U+03FF", "U+0400-U+04FF", "U+2010-U+205E", "U+20A0-U+20CF", "U+2122"],
+    "fallback": "?",
+    "spaceWidth": 4,
+    "author": "Frederic Cambus",
+    "license": "BSD-2-Clause",
+    "notice": "LICENSE",
+    "source": "Spleen 2.2.0, https://github.com/fcambus/spleen (monospace; trimmed to proportional widths)"
+}
