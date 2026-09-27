@@ -1,0 +1,12 @@
+{
+    "name": "colorlib-generator",
+    "private": true,
+    "description": "Builds modules/JavaScript/colorLib/data/colors.js. Keep @minecraft/vanilla-data on the same version as bedrock-samples (preview branch → 1.26.60.28 = 1.26.60-preview.28).",
+    "type": "module",
+    "scripts": {
+        "generate": "node generate.mjs"
+    },
+    "devDependencies": {
+        "@minecraft/vanilla-data": "1.26.60-preview.28"
+    }
+}

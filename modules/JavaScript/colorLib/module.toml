@@ -1,0 +1,4 @@
+name        = "colorLib"
+version     = "0.1.0"
+description = "Texture and map colors for every vanilla block and item — nearest map color, blocks by dye color, mapart colors."
+include     = ["colorLib.js", "colorMath.js", "data/colors.js"]
