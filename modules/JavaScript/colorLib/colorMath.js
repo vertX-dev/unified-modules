@@ -29,8 +29,9 @@ export function hexToRgb(hex) {
 
 export const rgbToHex = ({ r, g, b }) => '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
 
-// Accepts (r, g, b), ({ r, g, b }), ("#rrggbb") or (0xRRGGBB) → { r, g, b }.
+// Accepts (r, g, b), ([r, g, b]), ({ r, g, b }), ("#rrggbb") or (0xRRGGBB) → { r, g, b }.
 export function toRgb(r, g, b) {
+    if (Array.isArray(r)) return { r: r[0], g: r[1], b: r[2] };
     if (typeof r === 'object' && r) return { r: r.r, g: r.g, b: r.b };
     if (typeof r === 'string') return hexToRgb(r);
     if (g === undefined && typeof r === 'number') return unpack(r);

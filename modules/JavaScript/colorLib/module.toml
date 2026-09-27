@@ -1,4 +1,7 @@
 name        = "colorLib"
-version     = "0.1.0"
-description = "Texture and map colors for every vanilla block and item — nearest map color, blocks by dye color, mapart colors."
-include     = ["colorLib.js", "colorMath.js", "data/colors.js"]
+version     = "0.2.0"
+description = "Texture and map colors for every vanilla block and item — nearest blocks, palettes, gradients, mapart and block art from images."
+include     = ["colorLib.js", "colorImage.js", "colorMath.js", "data/colors.js"]
+
+[parts]
+detailed = ["colorLibDetailed.js"]   # texture noise; pulls data/colorsDetailed.js through its import
