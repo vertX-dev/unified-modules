@@ -1,7 +1,11 @@
 name        = "colorLib"
-version     = "0.2.0"
+version     = "0.3.0"
 description = "Texture and map colors for every vanilla block and item — nearest blocks, palettes, gradients, mapart and block art from images."
 include     = ["colorLib.js", "colorImage.js", "colorMath.js", "data/colors.js"]
 
 [parts]
 detailed = ["colorLibDetailed.js"]   # texture noise; pulls data/colorsDetailed.js through its import
+# Pixel displays drawn with DebugText (images, calibration, merging). colorDisplay.js needs
+# "@minecraft/debug-utilities" (beta) in the pack manifest — NOT added automatically: module
+# dependencies are module-wide and colorLib itself needs none. pixelOps.js is pure (web/Node too).
+display  = ["colorDisplay.js", "pixelOps.js"]
