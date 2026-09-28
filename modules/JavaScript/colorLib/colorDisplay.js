@@ -10,9 +10,10 @@
  */
 import { world } from '@minecraft/server';
 import { debugDrawer, DebugText } from '@minecraft/debug-utilities';
-import { downsample, mergeSquares, countGlyphs, rgbKey, MAX_GLYPHS, MERGE_UNCAPPED } from './pixelOps.js';
+import { downsample, mergeSquares, countGlyphs, rgbKey, tolKey, MAX_GLYPHS, MERGE_UNCAPPED, MAX_TOL } from './pixelOps.js';
 
-export { downsample, mergeSquares, countGlyphs, rgbKey, MAX_GLYPHS, MERGE_UNCAPPED };
+export { downsample, mergeSquares, countGlyphs, rgbKey, MAX_GLYPHS, MERGE_UNCAPPED, MAX_TOL };
+export { mergeImage, colorError, sweepMerge, tolKey, meanRgb } from './pixelOps.js';
 
 // Pixel displays built from DebugText: one square glyph per pixel, rotation
 // locked (`useRotation`) so it sits flat in a plane, colour per shape.
@@ -320,10 +321,11 @@ function layoutDisplay(d) {
 // nominal values; the calibration is applied on top.
 // `merge`: cover same-colour k×k squares with one glyph (static displays only —
 // recolorDisplay addresses single pixels). A number caps k; true = the cap from
-// maxMergeFor.
+// maxMergeFor. `tol` (0..MAX_TOL, with merge) also merges nearly equal
+// colours — that many low bits per channel ignored; the glyph shows the mean.
 // `meta`: optional { label: value } describing where the display came from.
 // Returns a display handle; `pixels` counts the image pixels drawn.
-export function createDisplay({ frame, width, height, colorAt, spacing, scale, seconds, range = 32, depth = true, merge = false, exact = false, meta }) {
+export function createDisplay({ frame, width, height, colorAt, spacing, scale, seconds, range = 32, depth = true, merge = false, tol = 0, exact = false, meta }) {
     const d = {
         shapes: [],
         frame,
@@ -345,7 +347,9 @@ export function createDisplay({ frame, width, height, colorAt, spacing, scale, s
     let cells;
     if (merge) {
         const maxK = typeof merge === 'number' ? Math.max(1, Math.floor(merge)) : maxMergeFor(spacing);
-        cells = mergeSquares(width, height, colorAt, { maxK, key: (c) => `${c.red},${c.green},${c.blue},${c.alpha}` });
+        const t = Math.max(0, Math.min(MAX_TOL, Math.round(tol)));
+        const key = t ? (c) => `${Math.round(c.red * 255) >> t},${Math.round(c.green * 255) >> t},${Math.round(c.blue * 255) >> t},${c.alpha}` : (c) => `${c.red},${c.green},${c.blue},${c.alpha}`;
+        cells = mergeSquares(width, height, colorAt, { maxK, key, ...(t ? { mix: meanRgba } : {}) });
         d.merged = true;
     } else {
         cells = [];
@@ -373,6 +377,18 @@ export function createDisplay({ frame, width, height, colorAt, spacing, scale, s
     }
     live.add(d);
     return d;
+}
+
+function meanRgba(list) {
+    const m = { red: 0, green: 0, blue: 0, alpha: 0 };
+    for (const c of list) {
+        m.red += c.red;
+        m.green += c.green;
+        m.blue += c.blue;
+        m.alpha += c.alpha;
+    }
+    for (const k in m) m[k] /= list.length;
+    return m;
 }
 
 function paint(shape, c) {
@@ -458,11 +474,11 @@ export const rgba = ({ r, g, b }) => ({ red: r / 255, green: g / 255, blue: b / 
 
 // Downsample an image to `res` and count what it would cost — without
 // spawning anything. Returns { small, glyphs, pixels }.
-export function planImage(img, { res = 32, merge = false, maxK } = {}) {
+export function planImage(img, { res = 32, merge = false, maxK, tol = 0 } = {}) {
     const small = downsample(img, res);
     const at = (x, y) => small.colors[y * small.w + x];
     const cap = merge ? (maxK ?? MERGE_UNCAPPED) : 1;
-    const glyphs = countGlyphs(small.w, small.h, at, { merge, maxK: cap, key: rgbKey });
+    const glyphs = countGlyphs(small.w, small.h, at, { merge, maxK: cap, key: tolKey(tol) });
     const pixels = small.colors.filter(Boolean).length;
     return { small, glyphs, pixels };
 }
@@ -473,12 +489,14 @@ export function planImage(img, { res = 32, merge = false, maxK } = {}) {
  *   res      longest side in pixels after downsampling (default 32)
  *   fit      longest side in blocks (default 1)
  *   merge    true / number cap — one glyph per same-colour square
+ *   tol      with merge: 0..MAX_TOL, merge nearly equal colours too (lossy;
+ *            pick one with sweepMerge — pixelOps.js)
  *   maxGlyphs  refuse (return { error }) above this many shapes (default MAX_GLYPHS)
  *   seconds, range, depth, meta — as createDisplay
  * Returns the display handle, or { error, glyphs }.
  */
-export function showImage(img, frame, { res = 32, fit = 1, merge = false, maxGlyphs = MAX_GLYPHS, seconds, range = 48, depth = true, meta } = {}) {
-    const plan = planImage(img, { res, merge: !!merge, maxK: typeof merge === 'number' ? merge : undefined });
+export function showImage(img, frame, { res = 32, fit = 1, merge = false, tol = 0, maxGlyphs = MAX_GLYPHS, seconds, range = 48, depth = true, meta } = {}) {
+    const plan = planImage(img, { res, merge: !!merge, maxK: typeof merge === 'number' ? merge : undefined, tol });
     if (plan.glyphs > maxGlyphs) return { error: `${plan.glyphs} glyphs is over the budget of ${maxGlyphs} — lower the resolution${merge ? '' : ' or merge'}`, glyphs: plan.glyphs };
     const { small } = plan;
     const spacing = fit / Math.max(small.w, small.h);
@@ -496,6 +514,7 @@ export function showImage(img, frame, { res = 32, fit = 1, merge = false, maxGly
         range,
         depth,
         merge,
+        tol,
         meta,
     });
 }

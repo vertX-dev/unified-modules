@@ -3,7 +3,7 @@
 //   node tools/colorLib/pixelOps.test.mjs
 // colorDisplay.js needs @minecraft/server + debug-utilities; it is exercised by
 // Commands++'s test suite (tests/mapart.test.mjs) against stubs.
-import { downsample, mergeSquares, countGlyphs, rgbKey } from '../../modules/JavaScript/colorLib/pixelOps.js';
+import { downsample, mergeSquares, countGlyphs, rgbKey, tolKey, mergeImage, colorError, sweepMerge, SWEEP_TOLS, SWEEP_CAPS } from '../../modules/JavaScript/colorLib/pixelOps.js';
 
 let pass = 0;
 let fail = 0;
@@ -60,6 +60,29 @@ const covers = (w, h, colorAt, cells) => {
     check('count without merge = non-empty pixels', countGlyphs(8, 8, at) === 16);
     check('count with merge = squares', countGlyphs(8, 8, at, { merge: true, key: rgbKey }) === 1);
     check('rgbKey packs', rgbKey({ r: 1, g: 2, b: 3 }) === 0x010203);
+}
+
+// ── lossy merging / sweepMerge ──────────────────────────────────────────────
+{
+    // Left half: a gentle gradient (merges only with tolerance); right half: flat.
+    const w = 32;
+    const colors = [];
+    for (let y = 0; y < w; y++) for (let x = 0; x < w; x++) colors.push(x < 16 ? { r: 100 + ((x + y) % 4), g: 50, b: 50 } : { r: 10, g: 200, b: 10 });
+    const small = { w, h: w, colors, factor: 1 };
+    const exact = mergeImage(small, { tol: 0 });
+    const loose = mergeImage(small, { tol: 3 });
+    check('tolerance merges near colours', loose.length < exact.length);
+    check('exact merge has zero error', colorError(small, exact) === 0);
+    const err = colorError(small, loose);
+    check('lossy merge error small but > 0', err > 0 && err < 2);
+    check('merged colour is the mean', loose.some((q) => q.k > 1 && q.c.r > 100 && q.c.r < 103));
+    check('tolKey 0 = rgbKey', tolKey(0) === rgbKey && tolKey(2)({ r: 7, g: 8, b: 9 }) === ((1 << 16) | (2 << 8) | 2));
+    const sweep = sweepMerge(small, { maxGlyphs: 1000 });
+    check('sweep: no-merge point first', !sweep.points[0].merge && sweep.points[0].glyphs === w * w);
+    check('sweep: every tol × cap', sweep.points.length === 1 + SWEEP_TOLS.length * SWEEP_CAPS.length);
+    check('sweep: front sorted, error falling', sweep.front.every((p, i, a) => !i || (p.glyphs >= a[i - 1].glyphs && p.error < a[i - 1].error)));
+    check('sweep: best on front and fits', sweep.best && sweep.front.includes(sweep.best) && sweep.best.fits);
+    check('sweep: nothing fits -> no best', sweepMerge(small, { maxGlyphs: 1 }).best === undefined);
 }
 
 console.log(`${pass} passed, ${fail} failed`);

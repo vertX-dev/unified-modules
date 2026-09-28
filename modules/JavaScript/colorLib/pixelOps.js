@@ -2,12 +2,14 @@
  * pixelOps.js — pure pixel operations for pixel displays (colorLib part `display`).
  *     import { downsample, mergeSquares, countGlyphs } from "./unified/colorLib/pixelOps.js"
  *
- * No imports and no Minecraft APIs — usable in a pack, in Node and on the web
- * (e.g. to preview how many glyphs an image costs before placing it).
+ * No Minecraft APIs (only colorMath.js) — usable in a pack, in Node and on
+ * the web (e.g. to preview how many glyphs an image costs before placing it).
  *
  * Image model: { w, h, palette: [0xRRGGBB…], idx: number[] } — row-major, top
  * row first, idx -1 = empty pixel.
  */
+
+import { rgbToOklab, oklabDistance } from './colorMath.js';
 
 // Box-downsample so the longest side is ≤ maxSide (render budget: one shape
 // per pixel). A cell is empty when most of it is empty, otherwise the mean of
@@ -49,8 +51,10 @@ export function downsample(img, maxSide) {
 // would overlap one already placed. Every pixel ends up covered exactly once.
 //   colorAt(x, y) -> colour | null   key(colour) -> comparable value
 //   maxK          largest square side allowed
+//   mix(colours)  colour for a merged square from the pixels it covers
+//                 (default: its top-left pixel) — use with a lossy key
 // Returns [{ x, y, k, c }] (x, y = top-left pixel).
-export function mergeSquares(width, height, colorAt, { maxK = 16, key = (c) => JSON.stringify(c) } = {}) {
+export function mergeSquares(width, height, colorAt, { maxK = 16, key = (c) => JSON.stringify(c), mix } = {}) {
     const n = width * height;
     const cols = new Array(n);
     const keys = new Array(n);
@@ -92,8 +96,14 @@ export function mergeSquares(width, height, colorAt, { maxK = 16, key = (c) => J
         const y = (i - x) / width;
         let k = Math.min(dp[i], Math.max(1, maxK));
         while (k > 1 && !free(x, y, k)) k--;
-        for (let yy = y; yy < y + k; yy++) for (let xx = x; xx < x + k; xx++) taken[yy * width + xx] = 1;
-        out.push({ x, y, k, c: cols[i] });
+        const covered = mix && k > 1 ? [] : null;
+        for (let yy = y; yy < y + k; yy++) {
+            for (let xx = x; xx < x + k; xx++) {
+                taken[yy * width + xx] = 1;
+                if (covered) covered.push(cols[yy * width + xx]);
+            }
+        }
+        out.push({ x, y, k, c: covered ? mix(covered) : cols[i] });
     }
     return out;
 }
@@ -117,3 +127,94 @@ export const MERGE_UNCAPPED = 64;
 
 // Colour key for {r,g,b} pixels (downsample output) — merge only exact matches.
 export const rgbKey = (c) => (c.r << 16) | (c.g << 8) | c.b;
+
+// ── Lossy merging ───────────────────────────────────────────────────────────
+// `tol` drops that many low bits of each channel before comparing, so nearly
+// equal colours merge too; a merged square shows the mean of what it covers.
+// tol 0 = exact (lossless). Fewer glyphs, more colour error — sweepMerge maps
+// the trade-off.
+
+export const MAX_TOL = 6;
+
+// Merge key for {r,g,b} pixels at a tolerance.
+export const tolKey = (tol = 0) => (tol > 0 ? (c) => ((c.r >> tol) << 16) | ((c.g >> tol) << 8) | (c.b >> tol) : rgbKey);
+
+// Mean of {r,g,b} colours.
+export function meanRgb(list) {
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    for (const c of list) {
+        r += c.r;
+        g += c.g;
+        b += c.b;
+    }
+    const n = list.length;
+    return { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) };
+}
+
+// Merge a downsampled image (downsample output). Returns [{ x, y, k, c }].
+export function mergeImage(small, { maxK = MERGE_UNCAPPED, tol = 0 } = {}) {
+    const at = (x, y) => small.colors[y * small.w + x];
+    return mergeSquares(small.w, small.h, at, { maxK, key: tolKey(tol), ...(tol > 0 ? { mix: meanRgb } : {}) });
+}
+
+// Mean perceptual error (OKLab distance × 100, see colorMath.js — ~1 barely
+// visible, ~10 clearly different) between the image and the colours the cells
+// draw it with, over the non-empty pixels. `labs` = cached rgbToOklab per pixel.
+export function colorError(small, cells, labs = small.colors.map((c) => (c ? rgbToOklab(c) : null))) {
+    let sum = 0;
+    let n = 0;
+    for (const { x, y, k, c } of cells) {
+        const lab = rgbToOklab(c);
+        for (let yy = y; yy < y + k; yy++) {
+            for (let xx = x; xx < x + k; xx++) {
+                const p = labs[yy * small.w + xx];
+                if (!p) continue;
+                sum += oklabDistance(p, lab);
+                n++;
+            }
+        }
+    }
+    return n ? sum / n : 0;
+}
+
+export const SWEEP_TOLS = [0, 1, 2, 3, 4, 5, 6];
+export const SWEEP_CAPS = [2, 4, 8, 16, 32, 64];
+
+/**
+ * Every merge setting for one downsampled image: glyphs against colour error.
+ * Returns { points, front, best } —
+ *   points  [{ merge, tol, maxK, glyphs, error, fits }] (first: no merging)
+ *   front   the points no other point beats on both glyphs and error, by glyphs
+ *   best    the balanced pick: on the front and within maxGlyphs, closest to
+ *           (fewest glyphs, zero error) with both axes scaled to their range
+ *           (glyphs on a log scale); undefined when nothing fits.
+ * Cost: one merge per tol × cap — fine on the web, too slow for a game tick at 256².
+ */
+export function sweepMerge(small, { tols = SWEEP_TOLS, caps = SWEEP_CAPS, maxGlyphs = MAX_GLYPHS } = {}) {
+    const labs = small.colors.map((c) => (c ? rgbToOklab(c) : null));
+    const pixels = labs.filter(Boolean).length;
+    const points = [{ merge: false, tol: 0, maxK: 1, glyphs: pixels, error: 0, fits: pixels <= maxGlyphs }];
+    for (const tol of tols) {
+        for (const maxK of caps) {
+            const cells = mergeImage(small, { maxK, tol });
+            points.push({ merge: true, tol, maxK, glyphs: cells.length, error: tol ? colorError(small, cells, labs) : 0, fits: cells.length <= maxGlyphs });
+        }
+    }
+    const sorted = [...points].sort((a, b) => a.glyphs - b.glyphs || a.error - b.error);
+    const front = [];
+    for (const p of sorted) if (!front.length || p.error < front[front.length - 1].error - 1e-9) front.push(p);
+
+    const fits = front.filter((p) => p.fits);
+    let best;
+    if (fits.length) {
+        const lg = (p) => Math.log(Math.max(1, p.glyphs));
+        const g0 = Math.min(...front.map(lg));
+        const g1 = Math.max(...front.map(lg));
+        const e1 = Math.max(...front.map((p) => p.error));
+        const score = (p) => Math.hypot(g1 > g0 ? (lg(p) - g0) / (g1 - g0) : 0, e1 > 0 ? p.error / e1 : 0);
+        best = fits.reduce((a, p) => (score(p) < score(a) ? p : a));
+    }
+    return { points, front, best };
+}
